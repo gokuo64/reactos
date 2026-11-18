@@ -2,6 +2,10 @@
 
 #include <internal/arch/mm.h>
 
+#ifndef SEC_IMAGE_NO_EXECUTE
+#define SEC_IMAGE_NO_EXECUTE            (SEC_IMAGE | SEC_NOCACHE)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -193,7 +193,7 @@ DisplayClassInstaller(
 
         rc = RegCreateKeyEx(
             hServiceKey, DeviceName, 0, NULL,
-            REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL,
+            REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | KEY_QUERY_VALUE, NULL,
             &hDeviceSubKey, &disposition);
         if (rc != ERROR_SUCCESS)
         {
@@ -202,6 +202,11 @@ DisplayClassInstaller(
         }
 
         if (disposition == REG_CREATED_NEW_KEY)
+            break;
+
+        /* If the key already exists but lacks InstalledDisplayDrivers, use it */
+        rc = RegQueryValueEx(hDeviceSubKey, _T("InstalledDisplayDrivers"), NULL, NULL, NULL, NULL);
+        if (rc != ERROR_SUCCESS)
             break;
 
         if (wIndex == 9999)

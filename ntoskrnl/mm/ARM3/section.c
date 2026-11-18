@@ -1852,7 +1852,6 @@ MiFlushTbAndCapture(IN PMMVAD FoundVad,
     // We don't support I/O mappings in this path yet
     //
     ASSERT(Pfn1 != NULL);
-    ASSERT(Pfn1->u3.e1.CacheAttribute != MiWriteCombined);
 
     //
     // Make sure new protection mask doesn't get in conflict and fix it if it does
@@ -1872,6 +1871,18 @@ MiFlushTbAndCapture(IN PMMVAD FoundVad,
     {
         //
         // This is a non-cached PFN
+        //
+        if ((ProtectionMask & (MM_NOCACHE | MM_NOACCESS)) != MM_NOCACHE)
+        {
+            RebuildPte = TRUE;
+            ProtectionMask &= ~MM_NOACCESS;
+            ProtectionMask |= MM_NOCACHE;
+        }
+    }
+    else if (Pfn1->u3.e1.CacheAttribute == MiWriteCombined)
+    {
+        //
+        // This is a write-combined PFN
         //
         if ((ProtectionMask & (MM_NOCACHE | MM_NOACCESS)) != MM_NOCACHE)
         {
@@ -2135,7 +2146,7 @@ MmCreateArm3Section(OUT PVOID *SectionObject,
     ASSERT((AllocationAttributes & (SEC_COMMIT | SEC_RESERVE | SEC_IMAGE)) != 0);
     ASSERT(!((AllocationAttributes & SEC_IMAGE) &&
              (AllocationAttributes & (SEC_COMMIT | SEC_RESERVE |
-                                      SEC_NOCACHE | SEC_NO_CHANGE))));
+                                      SEC_NO_CHANGE))));
     ASSERT(!((AllocationAttributes & SEC_COMMIT) && (AllocationAttributes & SEC_RESERVE)));
     ASSERT(!((SectionPageProtection & PAGE_NOCACHE) ||
              (SectionPageProtection & PAGE_WRITECOMBINE) ||
@@ -3122,12 +3133,24 @@ NtCreateSection(OUT PHANDLE SectionHandle,
     }
 
     /* Check for image allocation with invalid attributes */
-    if ((AllocationAttributes & SEC_IMAGE) &&
-        (AllocationAttributes & (SEC_COMMIT | SEC_RESERVE | SEC_LARGE_PAGES |
-                                 SEC_NOCACHE | SEC_NO_CHANGE)))
+    if (AllocationAttributes & SEC_IMAGE)
     {
-        DPRINT1("Image allocation with invalid attributes\n");
-        return STATUS_INVALID_PARAMETER_6;
+        if (AllocationAttributes & SEC_NOCACHE)
+        {
+            /* Only SEC_IMAGE_NO_EXECUTE (optionally with SEC_BASED) is valid */
+            if ((AllocationAttributes & ~SEC_BASED) != SEC_IMAGE_NO_EXECUTE)
+            {
+                DPRINT1("SEC_IMAGE_NO_EXECUTE with invalid attributes: %lx\n",
+                        AllocationAttributes);
+                return STATUS_INVALID_PARAMETER_6;
+            }
+        }
+        else if (AllocationAttributes & (SEC_COMMIT | SEC_RESERVE | SEC_LARGE_PAGES |
+                                         SEC_NO_CHANGE))
+        {
+            DPRINT1("Image allocation with invalid attributes\n");
+            return STATUS_INVALID_PARAMETER_6;
+        }
     }
 
     /* Check for allocation type is both commit and reserve */

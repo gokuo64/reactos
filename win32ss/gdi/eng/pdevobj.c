@@ -191,6 +191,7 @@ PDEVOBJ_bEnablePDEV(
         ppdev->pGraphicsDevice ? pdevmode->dmDisplayFrequency : 0,
         ppdev,
         ppdev->pGraphicsDevice ? ppdev->pGraphicsDevice->szNtDeviceName : L"");
+
     ppdev->dhpdev = pfnEnablePDEV(pdevmode,
                                   pwszLogAddress,
                                   HS_DDI_MAX,
@@ -200,7 +201,8 @@ PDEVOBJ_bEnablePDEV(
                                   sizeof(DEVINFO),
                                   &ppdev->devinfo,
                                   (HDEV)ppdev,
-                                  ppdev->pGraphicsDevice ? ppdev->pGraphicsDevice->pwszDescription : NULL,
+                                  (ppdev->pGraphicsDevice ?
+                                      ppdev->pGraphicsDevice->szNtDeviceName : NULL),
                                   ppdev->pGraphicsDevice ? ppdev->pGraphicsDevice->DeviceObject : NULL);
     TRACE("DrvEnablePDEV(pdevmode %p hdev %p) => dhpdev %p\n", pdevmode, ppdev, ppdev->dhpdev);
     if (ppdev->dhpdev == NULL)

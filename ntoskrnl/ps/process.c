@@ -484,6 +484,15 @@ PspCreateProcess(OUT PHANDLE ProcessHandle,
                                            (PVOID*)&SectionObject,
                                            NULL);
         if (!NT_SUCCESS(Status)) goto CleanupWithRef;
+
+        /* Do not allow process creation from a no-execute image section */
+        if (SectionObject->u.Flags.Image && SectionObject->u.Flags.NoCache)
+        {
+            DPRINT1("Cannot create process from SEC_IMAGE_NO_EXECUTE section\n");
+            ObDereferenceObject(SectionObject);
+            Status = STATUS_SECTION_NOT_IMAGE;
+            goto CleanupWithRef;
+        }
     }
     else
     {

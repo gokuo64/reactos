@@ -458,6 +458,11 @@ MmGrowKernelStackEx(IN PVOID StackPointer,
            (MmLargeStackSize + PAGE_SIZE));
 
     //
+    // Small stacks cannot be grown
+    //
+    if (!Thread->LargeStack) return STATUS_STACK_OVERFLOW;
+
+    //
     // Get the current stack limit
     //
     LimitPte = MiAddressToPte(Thread->StackLimit);
@@ -1366,17 +1371,65 @@ MmCleanProcessAddressSpace(IN PEPROCESS Process)
         ASSERT(VadTree->NumberGenericTableElements >= 1);
         MiRemoveNode((PMMADDRESS_NODE)Vad, VadTree);
 
-        /* Only regular VADs supported for now */
-        ASSERT(Vad->u.VadFlags.VadType == VadNone);
+        /* Check if this is a device physical memory VAD
+         * (e.g. a GPU frame-buffer mapped into user space via
+         * MmMapLockedPagesSpecifyCache).  Applications can exit while
+         * such mappings are still live; we must handle them here.
+         * Mirror MiUnmapLockedPagesInUserSpace's PTE teardown; the
+         * VAD has already been removed from the tree above. */
+        if (Vad->u.VadFlags.VadType == VadDevicePhysicalMemory)
+        {
+            PVOID BaseAddress = (PVOID)(Vad->StartingVpn << PAGE_SHIFT);
+            ULONG NumberOfPages = (ULONG)(Vad->EndingVpn - Vad->StartingVpn + 1);
+            PMMPTE PointerPte = MiAddressToPte(BaseAddress);
+            PMMPDE PointerPde;
+            PFN_NUMBER PageTablePage;
+            KIRQL OldIrql;
 
-        /* Check if this is a section VAD */
-        if (!(Vad->u.VadFlags.PrivateMemory) && (Vad->ControlArea))
+            OldIrql = MiAcquirePfnLock();
+            while (NumberOfPages != 0)
+            {
+                PointerPde = MiAddressToPde(BaseAddress);
+                if (PointerPde->u.Hard.Valid == 1 &&
+                    PointerPte->u.Hard.Valid == 1)
+                {
+                    /* Invalidate the PTE */
+                    MI_ERASE_PTE(PointerPte);
+
+                    /* Decrement the page-table page's share count,
+                     * balancing the MiMapLockedPagesInUserSpace increment */
+                    PageTablePage = PointerPde->u.Hard.PageFrameNumber;
+                    MiDecrementShareCount(MiGetPfnEntry(PageTablePage), PageTablePage);
+
+                    /* If the page table is now empty, remove the PDE too */
+                    if (MiDecrementPageTableReferences(BaseAddress) == 0)
+                    {
+                        ASSERT(MiIsPteOnPdeBoundary(PointerPte + 1) || (NumberOfPages == 1));
+                        MiDeletePde(PointerPde, Process);
+                    }
+                }
+
+                PointerPte++;
+                NumberOfPages--;
+                BaseAddress = (PVOID)((ULONG_PTR)BaseAddress + PAGE_SIZE);
+            }
+
+            KeFlushProcessTb();
+            MiReleasePfnLock(OldIrql);
+
+            /* Release the working set lock taken above */
+            MiUnlockProcessWorkingSetUnsafe(Process, Thread);
+        }
+        else if (!(Vad->u.VadFlags.PrivateMemory) && (Vad->ControlArea))
         {
             /* Remove the view */
             MiRemoveMappedView(Process, Vad);
         }
         else
         {
+            /* Regular private VAD */
+            ASSERT(Vad->u.VadFlags.VadType == VadNone);
+
             /* Delete the addresses */
             MiDeleteVirtualAddresses(Vad->StartingVpn << PAGE_SHIFT,
                                      (Vad->EndingVpn << PAGE_SHIFT) | (PAGE_SIZE - 1),

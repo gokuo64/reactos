@@ -379,9 +379,11 @@ EBRUSHOBJ_bRealizeBrush(EBRUSHOBJ *pebo, BOOL bCallDriver)
     }
     else
     {
-        /* Use the brushes pattern */
+        /* Pattern brush: iHatch >= HS_DDI_MAX, RB_DITHERCOLOR clear.
+         * -1 sets bit 31 so drivers treat this as dither-on-realize and
+         * ignore psoPattern (CORE-18267). */
         hbmPattern = pbr->hbmPattern;
-        iHatch = -1;
+        iHatch = HS_DDI_MAX;
     }
 
     psurfPattern = SURFACE_ShareLockSurface(hbmPattern);

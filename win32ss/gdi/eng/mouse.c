@@ -817,9 +817,19 @@ GreMovePointer(
     EngAcquireSemaphore(pdc->ppdev->hsemDevLock);
 
     /* Check if we need to move it */
-    if(pdc->ppdev->SafetyRemoveLevel == 0)
+    if (pdc->ppdev->SafetyRemoveLevel == 0)
     {
-        SURFOBJ* pso = &pdc->ppdev->pSurface->SurfObj;
+        SURFOBJ* pso;
+
+        /* Make sure a valid surface exists before moving pointer */
+        if (!pdc->ppdev->pSurface)
+        {
+            EngReleaseSemaphore(pdc->ppdev->hsemDevLock);
+            DC_UnlockDc(pdc);
+            return;
+        }
+
+        pso = &pdc->ppdev->pSurface->SurfObj;
 
         /* Store the cursor exclude position in the PDEV */
         prcl = &pdc->ppdev->Pointer.Exclude;

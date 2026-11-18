@@ -469,7 +469,7 @@ KiSwapContextEntry(IN PKSWITCHFRAME SwitchFrame,
     {
         ASSERT(NpxThread == OldThread);
 
-        if (NpxThread->NpxState == NPX_STATE_LOADED)
+        if (NpxThread->NpxState == NPX_STATE_LOADED && NpxThread->InitialStack)
         {
             __writecr0(Cr0 & ~(CR0_MP | CR0_EM | CR0_TS));
 

@@ -1611,9 +1611,13 @@ DrawFocusRect(HDC hdc, CONST RECT *rect)
 {
     HGDIOBJ OldObj;
     UINT cx, cy;
+    COLORREF prevBkColor, prevTextColor;
 
     NtUserSystemParametersInfo(SPI_GETFOCUSBORDERWIDTH, 0, &cx, 0);
     NtUserSystemParametersInfo(SPI_GETFOCUSBORDERHEIGHT, 0, &cy, 0);
+
+    prevBkColor = SetBkColor(hdc, RGB(255, 255, 255));
+    prevTextColor = SetTextColor(hdc, RGB(0, 0, 0));
 
     OldObj = SelectObject(hdc, gpsi->hbrGray);
 
@@ -1627,6 +1631,10 @@ DrawFocusRect(HDC hdc, CONST RECT *rect)
     PatBlt(hdc, rect->right - cx, rect->top + cy, cx, rect->bottom - rect->top - (2 * cy), PATINVERT);
 
     SelectObject(hdc, OldObj);
+
+    SetBkColor(hdc, prevBkColor);
+    SetTextColor(hdc, prevTextColor);
+
     return TRUE;
 }
 

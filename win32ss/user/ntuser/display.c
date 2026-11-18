@@ -418,7 +418,7 @@ NtUserEnumDisplayDevices(
    }
 
     /* Acquire global USER lock */
-    UserEnterShared();
+    UserEnterExclusive();
 
     /* Call the internal function */
     Status = UserEnumDisplayDevices(pustrDevice, iDevNum, &dispdev, dwFlags);
@@ -550,23 +550,51 @@ UserOpenDisplaySettingsKey(
     IN BOOL bGlobal)
 {
     HKEY hkey;
-    DISPLAY_DEVICEW dispdev;
+    PGRAPHICS_DEVICE pGraphicsDevice;
+    WCHAR szDeviceKey[256];
+    ULONG cbSize;
     NTSTATUS Status;
 
-    /* Get device info */
-    Status = UserEnumDisplayDevices(pustrDevice, 0, &dispdev, 0);
+    /* Ask GDI for the GRAPHICS_DEVICE */
+    pGraphicsDevice = EngpFindGraphicsDevice(pustrDevice, 0);
+    if (!pGraphicsDevice)
+        return STATUS_UNSUCCESSFUL;
+
+    /* Open the device map registry key */
+    Status = RegOpenKey(KEY_VIDEO, &hkey);
     if (!NT_SUCCESS(Status))
+    {
+        ERR("Could not open HARDWARE\\DEVICEMAP\\VIDEO registry key: 0x%08lx\n", Status);
         return Status;
+    }
+
+    /* Query the registry path for this adapter */
+    cbSize = sizeof(szDeviceKey);
+    Status = RegQueryValue(hkey,
+                           pGraphicsDevice->szNtDeviceName,
+                           REG_SZ,
+                           szDeviceKey,
+                           &cbSize);
+    ZwClose(hkey);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("Could not read registry path for %S: 0x%08lx\n",
+            pGraphicsDevice->szNtDeviceName, Status);
+        return Status;
+    }
 
     if (bGlobal)
     {
         // FIXME: Need to fix the registry key somehow
     }
 
-    /* Open the registry key */
-    Status = RegOpenKey(dispdev.DeviceKey, &hkey);
+    /* Open the adapter's registry key */
+    Status = RegOpenKey(szDeviceKey, &hkey);
     if (!NT_SUCCESS(Status))
+    {
+        ERR("Could not open registry key '%S': 0x%08lx\n", szDeviceKey, Status);
         return Status;
+    }
 
     *phkey = hkey;
 
@@ -602,8 +630,9 @@ NtUserEnumDisplaySettings(
     UNICODE_STRING ustrDevice;
     WCHAR awcDevice[CCHDEVICENAME];
     NTSTATUS Status;
-    ULONG cbSize, cbExtra;
-    DEVMODEW dmReg, *pdm;
+    ULONG cbSize, cbExtra, cbCopySize = 0, cbCopyExtra = 0;
+    DEVMODEW dmReg, dmLocal, *pdm = NULL;
+    PVOID pvExtra = NULL;
 
     TRACE("Enter NtUserEnumDisplaySettings(%wZ, %lu, %p, 0x%lx)\n",
           pustrDevice, iModeNum, lpDevMode, dwFlags);
@@ -658,7 +687,7 @@ NtUserEnumDisplaySettings(
     }
 
     /* Acquire global USER lock */
-    UserEnterShared();
+    UserEnterExclusive();
 
     if (iModeNum == ENUM_REGISTRY_SETTINGS)
     {
@@ -678,6 +707,26 @@ NtUserEnumDisplaySettings(
         Status = UserEnumDisplaySettings(pustrDevice, iModeNum, &pdm, dwFlags);
     }
 
+    if (NT_SUCCESS(Status))
+    {
+        cbCopySize = min(cbSize, pdm->dmSize);
+        RtlCopyMemory(&dmLocal, pdm, cbCopySize);
+
+        if (cbExtra > 0 && pdm->dmDriverExtra > 0)
+        {
+            cbCopyExtra = min(cbExtra, pdm->dmDriverExtra);
+            pvExtra = ExAllocatePoolWithTag(PagedPool, cbCopyExtra, USERTAG_DISPLAYINFO);
+            if (pvExtra)
+            {
+                RtlCopyMemory(pvExtra, (PCHAR)pdm + pdm->dmSize, cbCopyExtra);
+            }
+            else
+            {
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+            }
+        }
+    }
+
     /* Release lock */
     UserLeave();
 
@@ -688,14 +737,12 @@ NtUserEnumDisplaySettings(
         _SEH2_TRY
         {
             /* Output what we got */
-            RtlCopyMemory(lpDevMode, pdm, min(cbSize, pdm->dmSize));
+            RtlCopyMemory(lpDevMode, &dmLocal, cbCopySize);
 
             /* Output private/extra driver data */
-            if (cbExtra > 0 && pdm->dmDriverExtra > 0)
+            if (pvExtra)
             {
-                RtlCopyMemory((PCHAR)lpDevMode + cbSize,
-                              (PCHAR)pdm + pdm->dmSize,
-                              min(cbExtra, pdm->dmDriverExtra));
+                RtlCopyMemory((PCHAR)lpDevMode + cbSize, pvExtra, cbCopyExtra);
             }
         }
         _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
@@ -704,6 +751,9 @@ NtUserEnumDisplaySettings(
         }
         _SEH2_END;
     }
+
+    if (pvExtra)
+        ExFreePoolWithTag(pvExtra, USERTAG_DISPLAYINFO);
 
     return Status;
 }

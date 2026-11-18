@@ -3262,6 +3262,8 @@ MmCreateImageSection(PSECTION *SectionObject,
     Section->u.Flags.Image = 1;
     if (AllocationAttributes & SEC_NO_CHANGE)
         Section->u.Flags.NoChange = 1;
+    if (AllocationAttributes & SEC_NOCACHE)
+        Section->u.Flags.NoCache = 1;
 
 grab_image_section_object:
     OldIrql = MiAcquirePfnLock();
@@ -4154,15 +4156,38 @@ MmMapViewOfSection(
 
         for (i = 0; i < NrSegments; i++)
         {
+            ULONG SegmentProtect = SectionSegments[i].Protection;
             PVOID SBaseAddress = (PVOID)
                                  ((char*)ImageBase + (ULONG_PTR)SectionSegments[i].Image.VirtualAddress);
+
+            /* If this is a no-execute image section, strip execution rights */
+            if (Section->u.Flags.NoCache)
+            {
+                if (SegmentProtect == PAGE_EXECUTE_READ)
+                {
+                    SegmentProtect = PAGE_READONLY;
+                }
+                else if (SegmentProtect == PAGE_EXECUTE_READWRITE)
+                {
+                    SegmentProtect = PAGE_READWRITE;
+                }
+                else if (SegmentProtect == PAGE_EXECUTE_WRITECOPY)
+                {
+                    SegmentProtect = PAGE_WRITECOPY;
+                }
+                else if (SegmentProtect == PAGE_EXECUTE)
+                {
+                    SegmentProtect = PAGE_NOACCESS;
+                }
+            }
+
             MmLockSectionSegment(&SectionSegments[i]);
             Status = MmMapViewOfSegment(AddressSpace,
                                         TRUE,
                                         &SectionSegments[i],
                                         &SBaseAddress,
                                         SectionSegments[i].Length.QuadPart,
-                                        SectionSegments[i].Protection,
+                                        SegmentProtect,
                                         0,
                                         0);
             MmUnlockSectionSegment(&SectionSegments[i]);
@@ -4712,8 +4737,9 @@ MmCreateSection (OUT PVOID  * Section,
         }
     }
 
-    /* Convert section flag to page flag */
-    if (AllocationAttributes & SEC_NOCACHE) SectionPageProtection |= PAGE_NOCACHE;
+    /* Convert section flag to page flag (except SEC_IMAGE_NO_EXECUTE) */
+    if ((AllocationAttributes & SEC_NOCACHE) && !(AllocationAttributes & SEC_IMAGE))
+        SectionPageProtection |= PAGE_NOCACHE;
 
     /* Check to make sure the protection is correct. Nt* does this already */
     Protection = MiMakeProtectionMask(SectionPageProtection);

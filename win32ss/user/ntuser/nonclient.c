@@ -44,12 +44,21 @@ UserDrawWindowFrame(HDC hdc,
 		    ULONG width,
 		    ULONG height)
 {
-   HBRUSH hbrush = NtGdiSelectBrush( hdc, gpsi->hbrGray );
-   NtGdiPatBlt( hdc, rect->left, rect->top, rect->right - rect->left - width, height, PATINVERT );
-   NtGdiPatBlt( hdc, rect->left, rect->top + height, width, rect->bottom - rect->top - height, PATINVERT );
-   NtGdiPatBlt( hdc, rect->left + width, rect->bottom, rect->right - rect->left - width, -(LONG)height, PATINVERT );
-   NtGdiPatBlt( hdc, rect->right, rect->top, -(LONG)width, rect->bottom - rect->top - height, PATINVERT );
-   NtGdiSelectBrush( hdc, hbrush );
+   COLORREF prevBkColor, prevTextColor;
+   HBRUSH hbrush;
+
+   prevBkColor = IntGdiSetBkColor(hdc, RGB(255, 255, 255));
+   prevTextColor = IntGdiSetTextColor(hdc, RGB(0, 0, 0));
+   hbrush = NtGdiSelectBrush(hdc, gpsi->hbrGray);
+
+   NtGdiPatBlt(hdc, rect->left, rect->top, rect->right - rect->left - width, height, PATINVERT);
+   NtGdiPatBlt(hdc, rect->left, rect->top + height, width, rect->bottom - rect->top - height, PATINVERT);
+   NtGdiPatBlt(hdc, rect->left + width, rect->bottom, rect->right - rect->left - width, -(LONG)height, PATINVERT);
+   NtGdiPatBlt(hdc, rect->right, rect->top, -(LONG)width, rect->bottom - rect->top - height, PATINVERT);
+
+   NtGdiSelectBrush(hdc, hbrush);
+   IntGdiSetBkColor(hdc, prevBkColor);
+   IntGdiSetTextColor(hdc, prevTextColor);
 }
 
 VOID FASTCALL

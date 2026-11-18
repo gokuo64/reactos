@@ -739,6 +739,7 @@ KeBugCheckWithTf(IN ULONG BugCheckCode,
     PLDR_DATA_TABLE_ENTRY LdrEntry;
     PULONG_PTR HardErrorParameters;
     KIRQL OldIrql;
+    PVOID Frames[4];
 
     /* Set active bugcheck */
     KeBugCheckActive = TRUE;
@@ -825,6 +826,19 @@ KeBugCheckWithTf(IN ULONG BugCheckCode,
     KiBugCheckData[2] = BugCheckParameter2;
     KiBugCheckData[3] = BugCheckParameter3;
     KiBugCheckData[4] = BugCheckParameter4;
+
+    /* DIAGNOSTIC (never commit): capture call stack for parameterless MEMORY_MANAGEMENT */
+    if (BugCheckCode == MEMORY_MANAGEMENT &&
+        !BugCheckParameter1 && !BugCheckParameter2 &&
+        !BugCheckParameter3 && !BugCheckParameter4)
+    {
+        RtlZeroMemory(Frames, sizeof(Frames));
+        RtlCaptureStackBackTrace(1, 4, Frames, NULL);
+        KiBugCheckData[1] = (ULONG_PTR)Frames[0];
+        KiBugCheckData[2] = (ULONG_PTR)Frames[1];
+        KiBugCheckData[3] = (ULONG_PTR)Frames[2];
+        KiBugCheckData[4] = (ULONG_PTR)Frames[3];
+    }
 
     /* Now check what bugcheck this is */
     switch (BugCheckCode)

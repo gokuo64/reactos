@@ -1604,12 +1604,13 @@ LdrpInitializeProcessCompat(PVOID pProcessActctx, PVOID* pOldShimData)
     {
         const GUID* Guid;
         const DWORD Version;
+        const DWORD BuildNumber;
     } KnownCompatGuids[] = {
-        { &COMPAT_GUID_WIN10, _WIN32_WINNT_WIN10 },
-        { &COMPAT_GUID_WIN81, _WIN32_WINNT_WINBLUE },
-        { &COMPAT_GUID_WIN8, _WIN32_WINNT_WIN8 },
-        { &COMPAT_GUID_WIN7, _WIN32_WINNT_WIN7 },
-        { &COMPAT_GUID_VISTA, _WIN32_WINNT_VISTA },
+        { &COMPAT_GUID_WIN10, _WIN32_WINNT_WIN10, 19041 },
+        { &COMPAT_GUID_WIN81, _WIN32_WINNT_WINBLUE, 9600 },
+        { &COMPAT_GUID_WIN8, _WIN32_WINNT_WIN8, 9200 },
+        { &COMPAT_GUID_WIN7, _WIN32_WINNT_WIN7, 7601 },
+        { &COMPAT_GUID_VISTA, _WIN32_WINNT_VISTA, 6002 },
     };
 
     ULONG Buffer[(sizeof(COMPATIBILITY_CONTEXT_ELEMENT) * 10 + sizeof(ACTIVATION_CONTEXT_COMPATIBILITY_INFORMATION)) / sizeof(ULONG)];
@@ -1710,8 +1711,17 @@ LdrpInitializeProcessCompat(PVOID pProcessActctx, PVOID* pOldShimData)
 
                 /* Store the lowest found version, and bail out. */
                 pShimData->dwRosProcessCompatVersion = KnownCompatGuids[cur].Version;
-                DPRINT1("LdrpInitializeProcessCompat: Found guid for winver 0x%x in manifest from %wZ\n",
+
+                /* Propagate compatibility version to PEB for GetVersion/GetVersionEx */
+                NtCurrentPeb()->OSMajorVersion = HIBYTE(KnownCompatGuids[cur].Version);
+                NtCurrentPeb()->OSMinorVersion = LOBYTE(KnownCompatGuids[cur].Version);
+                NtCurrentPeb()->OSBuildNumber = (USHORT)KnownCompatGuids[cur].BuildNumber;
+
+                DPRINT1("LdrpInitializeProcessCompat: Set winver 0x%x (v%lu.%lu, build %u) for %wZ\n",
                         KnownCompatGuids[cur].Version,
+                        NtCurrentPeb()->OSMajorVersion,
+                        NtCurrentPeb()->OSMinorVersion,
+                        NtCurrentPeb()->OSBuildNumber,
                         &(NtCurrentPeb()->ProcessParameters->ImagePathName));
                 return;
             }

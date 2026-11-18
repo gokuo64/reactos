@@ -200,14 +200,13 @@ IntEngUpdateClipRegion(
     {
         Clip->iDirection = CD_ANY;
 
-        Clip->iDComplexity = (((rcBounds->top == rcBounds->bottom) &&
-                                     (rcBounds->left == rcBounds->right))
-                                     ? DC_TRIVIAL : DC_RECT);
+        /* An empty region is an empty DC_RECT: DC_TRIVIAL means no clipping */
+        Clip->iDComplexity = DC_RECT;
 
         Clip->iFComplexity = FC_RECT;
         Clip->iMode = TC_RECTANGLES;
         Clip->rclBounds = *rcBounds;
-        Clip->RectCount = 1;
+        Clip->RectCount = count;
         if (Clip->Rects != &Clip->rclBounds)
             EngFreeMem(Clip->Rects);
         Clip->Rects = &Clip->rclBounds;

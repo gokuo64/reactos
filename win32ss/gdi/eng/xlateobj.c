@@ -484,6 +484,23 @@ EXLATEOBJ_iXlateBitfieldsToPal(PEXLATEOBJ pexlo, ULONG iColor)
 }
 
 
+static
+USHORT
+PALETTE_uiGetDdiType(PALETTE *ppal)
+{
+    if (ppal->flFlags & PAL_INDEXED)
+        return PAL_INDEXED;
+    if (ppal->flFlags & PAL_BGR)
+        return PAL_BGR;
+    if (ppal->flFlags & PAL_RGB)
+        return PAL_RGB;
+    if (ppal->flFlags & PAL_BITFIELDS)
+        return PAL_BITFIELDS;
+    if (ppal->flFlags & PAL_CMYK)
+        return PAL_CMYK;
+    return 0;
+}
+
 /** Private Functions *********************************************************/
 
 VOID
@@ -510,8 +527,8 @@ EXLATEOBJ_vInitialize(
     pexlo->hColorTransform = NULL;
     pexlo->ppalSrc = ppalSrc;
     pexlo->ppalDst = ppalDst;
-    pexlo->xlo.iSrcType = (USHORT)ppalSrc->flFlags;
-    pexlo->xlo.iDstType = (USHORT)ppalDst->flFlags;
+    pexlo->xlo.iSrcType = PALETTE_uiGetDdiType(ppalSrc);
+    pexlo->xlo.iDstType = PALETTE_uiGetDdiType(ppalDst);
     pexlo->ppalDstDc = &gpalRGB;
 
     if (ppalDst == ppalSrc)

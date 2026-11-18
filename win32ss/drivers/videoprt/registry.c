@@ -323,7 +323,7 @@ IntSetupDeviceSettingsKey(
                                OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE,
                                DevInstRegKey,
                                NULL);
-    Status = ZwOpenKey(&DestKeyHandle, KEY_WRITE, &ObjectAttributes);
+    Status = ZwOpenKey(&SourceKeyHandle, KEY_READ, &ObjectAttributes);
 
     /* Close the device software key */
     ObCloseHandle(DevInstRegKey, KernelMode);
@@ -334,22 +334,27 @@ IntSetupDeviceSettingsKey(
         return Status;
     }
 
-    /* Open the device profile key */
+    /* Open or create the device profile key */
     InitializeObjectAttributes(&ObjectAttributes,
                                &DeviceExtension->RegistryPath,
                                OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE,
                                NULL,
                                NULL);
-    Status = ZwOpenKey(&SourceKeyHandle, KEY_READ, &ObjectAttributes);
+    Status = ZwCreateKey(&DestKeyHandle,
+                         KEY_WRITE,
+                         &ObjectAttributes,
+                         0,
+                         NULL,
+                         REG_OPTION_NON_VOLATILE,
+                         NULL);
     if (Status != STATUS_SUCCESS)
     {
-        ERR_(VIDEOPRT, "ZwOpenKey failed for settings key, status 0x%lx\n", Status);
-        ObCloseHandle(DestKeyHandle, KernelMode);
+        ERR_(VIDEOPRT, "ZwCreateKey failed for device key, status 0x%lx\n", Status);
+        ObCloseHandle(SourceKeyHandle, KernelMode);
         return Status;
     }
 
-    IntCopyRegistryValue(SourceKeyHandle, DestKeyHandle, L"InstalledDisplayDrivers");
-    IntCopyRegistryValue(SourceKeyHandle, DestKeyHandle, L"Attach.ToDesktop");
+    IntCopyRegistryKey(SourceKeyHandle, DestKeyHandle);
 
     ObCloseHandle(SourceKeyHandle, KernelMode);
     ObCloseHandle(DestKeyHandle, KernelMode);

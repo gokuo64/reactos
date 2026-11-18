@@ -670,6 +670,13 @@ IntEngLineTo(SURFOBJ *psoDest,
     }
     else
     {
+        /* If the clipping bounds are empty, nothing is visible */
+        if (ClipObj->rclBounds.left >= ClipObj->rclBounds.right ||
+            ClipObj->rclBounds.top >= ClipObj->rclBounds.bottom)
+        {
+            return TRUE;
+        }
+
         b = ClipObj->rclBounds;
     }
     if ((x1 < b.left && x2 < b.left) || (b.right <= x1 && b.right <= x2) ||
@@ -685,7 +692,10 @@ IntEngLineTo(SURFOBJ *psoDest,
     if (b.left == b.right) b.right++;
     if (b.top == b.bottom) b.bottom++;
 
-    if (psurfDest->flags & HOOK_LINETO)
+    /* Hardware display drivers do not support DC_COMPLEX multi-rectangle
+     * clipping in DrvLineTo. Only delegate when clipping is trivial or a single rect. */
+    if ((psurfDest->flags & HOOK_LINETO) &&
+        (ClipObj == NULL || ClipObj->iDComplexity != DC_COMPLEX))
     {
         /* Call the driver's DrvLineTo */
         ret = GDIDEVFUNCS(psoDest).LineTo(

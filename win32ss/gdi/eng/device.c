@@ -99,6 +99,35 @@ EngpHasVgaDriver(
 }
 
 /*
+ * Check if a device is currently attached as the VGA device of another
+ * graphics device. Such a device is not in the global list, but is still open.
+ */
+static
+BOOLEAN
+EngpIsAttachedVgaDevice(
+    _In_ PCWSTR pwszNtDeviceName)
+{
+    PGRAPHICS_DEVICE pGraphicsDevice;
+    BOOLEAN bFound = FALSE;
+
+    EngAcquireSemaphoreShared(ghsemGraphicsDeviceList);
+    for (pGraphicsDevice = gpGraphicsDeviceFirst;
+         pGraphicsDevice;
+         pGraphicsDevice = pGraphicsDevice->pNextGraphicsDevice)
+    {
+        if (pGraphicsDevice->pVgaDevice &&
+            _wcsicmp(pGraphicsDevice->pVgaDevice->szNtDeviceName, pwszNtDeviceName) == 0)
+        {
+            bFound = TRUE;
+            break;
+        }
+    }
+    EngReleaseSemaphore(ghsemGraphicsDeviceList);
+
+    return bFound;
+}
+
+/*
  * Add a device to gpGraphicsDeviceFirst/gpGraphicsDeviceLast list (if not already present).
  */
 _Requires_lock_held_(ghsemGraphicsDeviceList)
@@ -219,6 +248,12 @@ EngpUpdateGraphicsDeviceList(VOID)
         /* Check if the device exists already */
         pGraphicsDevice = EngpFindGraphicsDevice(&ustrDeviceName, iDevNum);
         if (pGraphicsDevice != NULL)
+        {
+            continue;
+        }
+
+        /* Skip the VGA device attached to another adapter: it is already open */
+        if (EngpIsAttachedVgaDevice(awcDeviceName))
         {
             continue;
         }
@@ -512,6 +547,20 @@ VideoPortCallout(
     }
 }
 
+static
+NTSTATUS
+NTAPI
+EngpPnPCompletionRoutine(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp,
+    _In_ PVOID Context)
+{
+    PKEVENT Event = (PKEVENT)Context;
+
+    KeSetEvent(Event, IO_NO_INCREMENT, FALSE);
+    return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
 /* Sends a TargetDeviceRelation request to PDO
  * On success, caller needs to free pDeviceRelations with ExFreePool()
  */
@@ -524,42 +573,46 @@ EngpPnPTargetRelationRequest(
     PIO_STACK_LOCATION IrpSp;
     KEVENT Event;
     PIRP pIrp;
-    IO_STATUS_BLOCK Iosb;
     NTSTATUS Status;
 
     /* Initialize an event */
     KeInitializeEvent(&Event, SynchronizationEvent, FALSE);
 
-    /* Build IRP */
-    pIrp = IoBuildSynchronousFsdRequest(IRP_MJ_PNP,
-                                        pDeviceObject,
-                                        NULL, 0,
-                                        NULL,
-                                        &Event,
-                                        &Iosb);
+    /* Allocate PnP IRP */
+    pIrp = IoAllocateIrp(pDeviceObject->StackSize, FALSE);
     if (!pIrp)
         return STATUS_INSUFFICIENT_RESOURCES;
 
     /* Initialize IRP */
     pIrp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+    pIrp->IoStatus.Information = 0;
     IrpSp = IoGetNextIrpStackLocation(pIrp);
+    IrpSp->MajorFunction = IRP_MJ_PNP;
     IrpSp->MinorFunction = IRP_MN_QUERY_DEVICE_RELATIONS;
     IrpSp->Parameters.QueryDeviceRelations.Type = TargetDeviceRelation;
+
+    IoSetCompletionRoutine(pIrp,
+                           EngpPnPCompletionRoutine,
+                           &Event,
+                           TRUE,
+                           TRUE,
+                           TRUE);
 
     /* Call the driver */
     Status = IoCallDriver(pDeviceObject, pIrp);
 
-    /* Wait if neccessary */
+    /* Wait if necessary */
     if (Status == STATUS_PENDING)
     {
-        KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, 0);
-        Status = Iosb.Status;
+        KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);
+        Status = pIrp->IoStatus.Status;
     }
 
-    /* Return information to the caller about the operation. */
+    /* Return information to the caller about the operation */
     if (NT_SUCCESS(Status))
-        *pDeviceRelations = (PDEVICE_RELATIONS)Iosb.Information;
+        *pDeviceRelations = (PDEVICE_RELATIONS)pIrp->IoStatus.Information;
 
+    IoFreeIrp(pIrp);
     return Status;
 }
 
@@ -568,7 +621,7 @@ NTAPI
 EngpUpdateMonitorDevices(
     _In_ PGRAPHICS_DEVICE pGraphicsDevice)
 {
-    PDEVICE_RELATIONS pDeviceRelations;
+    PDEVICE_RELATIONS pDeviceRelations = NULL;
     PVIDEO_MONITOR_DEVICE pMonitorDevices;
     ULONG i, bytesWritten, monitorCount;
     NTSTATUS Status;
@@ -576,10 +629,12 @@ EngpUpdateMonitorDevices(
 
     /* Request right PDO for device relations */
     Status = EngpPnPTargetRelationRequest(pGraphicsDevice->DeviceObject, &pDeviceRelations);
-    if (!NT_SUCCESS(Status))
+    if (!NT_SUCCESS(Status) || !pDeviceRelations || pDeviceRelations->Count == 0)
     {
         ERR("EngpPnPTargetRelationRequest() failed with status 0x%08x\n", Status);
-        return Status;
+        if (pDeviceRelations)
+            ExFreePool(pDeviceRelations);
+        return NT_SUCCESS(Status) ? STATUS_UNSUCCESSFUL : Status;
     }
     ASSERT(pDeviceRelations->Count == 1);
 
@@ -1016,6 +1071,7 @@ EngDeviceIoControl(
     KeInitializeEvent(&Event, SynchronizationEvent, FALSE);
 
     DeviceObject = (PDEVICE_OBJECT) hDevice;
+    RtlZeroMemory(&Iosb, sizeof(Iosb));
 
     Irp = IoBuildDeviceIoControlRequest(dwIoControlCode,
                                         DeviceObject,
@@ -1040,7 +1096,7 @@ EngDeviceIoControl(
            Iosb.Information);
 
     /* Return information to the caller about the operation. */
-    *lpBytesReturned = (DWORD)Iosb.Information;
+    *lpBytesReturned = NT_SUCCESS(Status) ? (DWORD)Iosb.Information : 0;
 
     /* Convert NT status values to win32 error codes. */
     switch (Status)

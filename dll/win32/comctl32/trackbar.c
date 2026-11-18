@@ -1003,7 +1003,9 @@ TRACKBAR_Refresh (TRACKBAR_INFO *infoPtr, HDC hdcDst)
     }
 
     /* draw focus rectangle */
-    if (infoPtr->flags & TB_IS_FOCUSED) {
+    if ((infoPtr->flags & TB_IS_FOCUSED) &&
+        !(SendMessageW(infoPtr->hwndSelf, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS))
+    {
 	DrawFocusRect(hdc, &rcClient);
     }
 

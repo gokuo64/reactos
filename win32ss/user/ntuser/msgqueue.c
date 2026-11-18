@@ -106,7 +106,7 @@ UserSetCursor(
     OldCursor = MessageQueue->CursorObject;
 
     /* Check if cursors are different */
-    if (OldCursor == NewCursor)
+    if (!ForceChange && (OldCursor == NewCursor))
         return OldCursor;
 
     /* Update cursor for this message queue */
@@ -124,7 +124,7 @@ UserSetCursor(
 
     /* Update cursor if this message queue controls it */
     pWnd = IntTopLevelWindowFromPoint(gpsi->ptCursor.x, gpsi->ptCursor.y);
-    if (pWnd && pWnd->head.pti->MessageQueue == MessageQueue)
+    if (ForceChange || (pWnd && pWnd->head.pti->MessageQueue == MessageQueue))
     {
        /* Get the screen DC */
         if (!(hdcScreen = IntGetScreenDC()))

@@ -53,8 +53,6 @@ InitLDEVImpl(VOID)
     }
 
     /* Initialize the LDEVOBJ for win32k */
-    gpldevWin32k->leLink.Flink = NULL;
-    gpldevWin32k->leLink.Blink = NULL;
     gpldevWin32k->ldevtype = LDEV_DEVICE_DISPLAY;
     gpldevWin32k->cRefs = 1;
     gpldevWin32k->ulDriverVersion = GDI_ENGINE_VERSION;
@@ -70,6 +68,9 @@ InitLDEVImpl(VOID)
                                      IMAGE_DIRECTORY_ENTRY_EXPORT,
                                      &cbSize);
     gpldevWin32k->pGdiDriverInfo->ImageLength = 0; // FIXME
+
+    /* Insert win32k into the global list */
+    InsertTailList(&gleLdevListHead, &gpldevWin32k->leLink);
 
     return STATUS_SUCCESS;
 }
@@ -759,6 +760,17 @@ LDEVOBJ_bProbeAndCaptureDevmode(
         ERR("EngpGetDisplayDriverParameters() failed with status 0x%08x\n", Status);
         return FALSE;
     }
+
+    /* If no default resolution was configured in the registry, supply a safe fallback */
+    if (dmSearch.dmPelsWidth == 0 || dmSearch.dmPelsHeight == 0)
+    {
+        dmSearch.dmPelsWidth = 1024;
+        dmSearch.dmPelsHeight = 768;
+    }
+    if (dmSearch.dmBitsPerPel == 0)
+        dmSearch.dmBitsPerPel = 32;
+    if (dmSearch.dmDisplayFrequency == 0)
+        dmSearch.dmDisplayFrequency = 60;
 
     /* Override values with the new ones provided */
 

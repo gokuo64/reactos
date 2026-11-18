@@ -421,13 +421,27 @@ FORCEINLINE
 VOID
 KiRundownThread(IN PKTHREAD Thread)
 {
+    BOOLEAN WereEnabled;
+    ULONG Cr0;
+
+    WereEnabled = KeDisableInterrupts();
+
     /* Check if this is the NPX Thread */
     if (KeGetCurrentPrcb()->NpxThread == Thread)
     {
         /* Clear it */
         KeGetCurrentPrcb()->NpxThread = NULL;
+        Thread->NpxState = NPX_STATE_NOT_LOADED;
+
+        /* Ensure CR0_TS is clear for fninit, then mark FPU unavailable */
+        Cr0 = __readcr0();
+        if (Cr0 & CR0_TS)
+            __writecr0(Cr0 & ~CR0_TS);
         Ke386FnInit();
+        __writecr0(Cr0 | CR0_TS);
     }
+
+    KeRestoreInterrupts(WereEnabled);
 }
 
 CODE_SEG("INIT")
